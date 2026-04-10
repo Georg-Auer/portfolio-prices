@@ -10,15 +10,18 @@ import json
 import time
 
 # Get credentials from environment variables (set in GitHub Secrets)
-DATABRICKS_HOST = os.environ['DATABRICKS_HOST']  # e.g., https://adb-1234567890123456.7.azuredatabricks.net
+DATABRICKS_HOST = os.environ['DATABRICKS_HOST'].rstrip('/')  # Remove trailing slash if present
 DATABRICKS_TOKEN = os.environ['DATABRICKS_TOKEN']
+DATABRICKS_WAREHOUSE_ID = os.environ['DATABRICKS_WAREHOUSE_ID']
 
 # Configuration
 CATALOG = 'workspace'
 SCHEMA = 'portfolio'
 TABLE = 'isin_ticker_mapping'
 
-print(f"Fetching ticker list from Databricks table: {CATALOG}.{SCHEMA}.{TABLE}\n")
+print(f"Fetching ticker list from Databricks table: {CATALOG}.{SCHEMA}.{TABLE}")
+print(f"Using warehouse: {DATABRICKS_WAREHOUSE_ID}")
+print(f"Host: {DATABRICKS_HOST}\n")
 
 # Use Databricks SQL Statement Execution API
 url = f"{DATABRICKS_HOST}/api/2.0/sql/statements"
@@ -41,13 +44,20 @@ ORDER BY security_name
 
 payload = {
     "statement": sql_query,
-    "warehouse_id": None,  # Will use serverless SQL
+    "warehouse_id": DATABRICKS_WAREHOUSE_ID,
     "wait_timeout": "30s"
 }
 
 try:
     # Execute query
+    print(f"Sending request to: {url}")
     response = requests.post(url, headers=headers, json=payload)
+    
+    # Print response details before raising error
+    print(f"Response status code: {response.status_code}")
+    if response.status_code != 200:
+        print(f"Response body: {response.text}")
+    
     response.raise_for_status()
     
     result = response.json()
@@ -57,18 +67,23 @@ try:
         statement_id = result['statement_id']
         status_url = f"{url}/{statement_id}"
         
+        print(f"Query is pending, polling for results...")
+        
         # Poll for completion
-        for _ in range(30):  # 30 attempts, 1 second apart = 30 seconds max
-            time.sleep(1)
+        for i in range(60):  # 60 attempts, 2 seconds apart = 2 minutes max
+            time.sleep(2)
             status_response = requests.get(status_url, headers=headers)
             status_response.raise_for_status()
             result = status_response.json()
             
             state = result.get('status', {}).get('state')
+            print(f"  Attempt {i+1}: {state}")
+            
             if state == 'SUCCEEDED':
                 break
             elif state == 'FAILED':
-                raise Exception(f"Query failed: {result.get('status', {}).get('error')}")
+                error_msg = result.get('status', {}).get('error', {})
+                raise Exception(f"Query failed: {error_msg}")
     
     # Extract results
     if result.get('status', {}).get('state') == 'SUCCEEDED':
@@ -100,5 +115,5 @@ try:
         raise Exception(f"Unexpected query state: {result.get('status', {}).get('state')}")
         
 except Exception as e:
-    print(f"Error fetching tickers from Databricks: {str(e)}")
+    print(f"\nError fetching tickers from Databricks: {str(e)}")
     raise
