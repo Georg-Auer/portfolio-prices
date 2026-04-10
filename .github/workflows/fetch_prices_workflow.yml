@@ -1,27 +1,25 @@
-name: Fetch Prices Workflow
+name: Fetch Prices
 
-on: [push]
+on:
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
-  fetch_prices:
+  fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v2
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v2
         with:
-          python-version: '3.8'
+          python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Fetch prices
+      - name: Fetch Prices
         run: |
           python fetch_prices.py
-
-      - name: Notify completion
-        run: |
-          echo 'Prices fetched successfully!'
